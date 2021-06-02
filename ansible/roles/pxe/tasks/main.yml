@@ -1,12 +1,5 @@
 ---
 # tasks file for pxe
-- name: install pxe pre-requisite packages 
-  yum:
-    name: ['tftp-server', 'xinetd']
-    state: latest
-  when:
-    - groups['primary'] is defined
-    - ansible_fqdn in groups['primary']
 
 - name: enable services
   systemd:
@@ -120,14 +113,47 @@
     - cluster_install == '5+ node'
     - item.os == 'rhel'
 
-- name: generate pxe menu grub.cfg file
-  template:
-    src: menu.j2
-    dest: /var/lib/tftpboot/uefi/grub.cfg
-    mode: 0755
-  when:
-    - groups['primary'] is defined
-    - ansible_fqdn in groups['primary']
+- name: generate bootstrap node grub.cfg file
+  copy:
+    dest: /var/lib/tftpboot/uefi/grub.cfg-01-{{item.mac|lower|replace(':','-')}}
+    content: |
+      set default=0
+      set timeout=5
+      menuentry 'hi {{item.name}} node :)' --class fedora --class gnu-linux --class gnu --class os {
+        linuxefi {{ os }}/{{ version }}/{{ kernel_file }} nomodeset rd.neednet=1 coreos.inst.insecure coreos.live.rootfs_url=http://{{ vip_ip }}:{{ http_port }}/{{ os }}/{{ version }}/{{ rootfs }} coreos.inst=yes coreos.inst.install_dev=sda coreos.inst.image_url=http://{{ vip_ip }}:{{ http_port }}/{{ os }}/{{ version }}/{{ uefi_file }} coreos.inst.ignition_url=http://{{ vip_ip }}:{{ http_port }}/{{ http_ignition }}/bootstrap.ign ip=dhcp 
+        initrdefi {{ os }}/{{ version }}/{{ initramfs }}
+      }
+    mode: 0775
+  loop: "{{bootstrap_node}}"
+  
+  
+
+- name: generate control nodes grub.cfg files
+  copy:
+    dest: /var/lib/tftpboot/uefi/grub.cfg-01-{{item.mac|lower|replace(':','-')}}
+    content: |
+      set default=0
+      set timeout=5
+      menuentry 'hi {{item.name}} node :)' --class fedora --class gnu-linux --class gnu --class os {
+        linuxefi {{ os }}/{{ version }}/{{ kernel_file }} nomodeset rd.neednet=1 coreos.inst.insecure coreos.live.rootfs_url=http://{{ vip_ip }}:{{ http_port }}/{{ os }}/{{ version }}/{{ rootfs }} coreos.inst=yes coreos.inst.install_dev={{ master_install_device }} coreos.inst.image_url=http://{{ vip_ip }}:{{ http_port }}/{{ os }}/{{ version }}/{{ uefi_file }} coreos.inst.ignition_url=http://{{ vip_ip }}:{{ http_port }}/{{ http_ignition }}/master.ign ip={{ item.ip}}::{{ ansible_default_ipv4.gateway }}:{{ ansible_default_ipv4.netmask }}:{{ item.name }}.{{ ansible_domain }}:{{ item.bond }}:none bond={{ item.bond }}:{{ item.primary }},{{ item.backup }}:{{ item.options }} nameserver={{ vip_ip }}
+        initrdefi {{ os }}/{{ version }}/{{ initramfs }}
+      }
+    mode: 0775
+  loop: "{{control_nodes}}"
+
+- name: generate compute nodes grub.cfg files
+  copy:
+    dest: /var/lib/tftpboot/uefi/grub.cfg-01-{{item.mac|lower|replace(':','-')}}
+    content: |
+      set default=0
+      set timeout=5
+      menuentry 'hi {{item.name}} node :)' --class fedora --class gnu-linux --class gnu --class os {
+        linuxefi {{ os }}/{{ version }}/{{ kernel_file }} nomodeset rd.neednet=1 coreos.inst.insecure coreos.live.rootfs_url=http://{{ vip_ip }}:{{ http_port }}/{{ os }}/{{ version }}/{{ rootfs }} coreos.inst=yes coreos.inst.install_dev={{ worker_install_device }} coreos.inst.image_url=http://{{ vip_ip }}:{{ http_port }}/{{ os }}/{{ version }}/{{ uefi_file }} coreos.inst.ignition_url=http://{{ vip_ip }}:{{ http_port }}/{{ http_ignition }}/worker.ign ip={{ item.ip}}::{{ ansible_default_ipv4.gateway }}:{{ ansible_default_ipv4.netmask }}:{{ item.name }}.{{ ansible_domain }}:{{ item.bond }}:none bond={{ item.bond }}:{{ item.primary }},{{ item.backup }}:{{ item.options }} nameserver={{ vip_ip }}
+        initrdefi {{ os }}/{{ version }}/{{ initramfs }}
+      }
+    mode: 0775
+  loop: "{{compute_nodes}}"
+
 
 - name: create tftp file under /etc/xinetd.d
   copy:
