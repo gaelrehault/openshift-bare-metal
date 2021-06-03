@@ -126,6 +126,7 @@ def deploy():
         cmd = 'ssh -t root@localhost "sudo su - core -c \' ssh -o \\"StrictHostKeyChecking no \\" bootstrap sudo ss -tulpn | grep -E \\"6443|22623|2379\\"\'"'
         print(cmd)
         openedPorts= Ssh.execute_command_tty("localhost",
+
                                          "root",
                                          "Dell0SS!",
                                          cmd)
@@ -142,6 +143,66 @@ def deploy():
         drac_client = DRACClient(node["ip_idrac"], drac_user, drac_password)
         if "POWER_OFF" in drac_client.get_power_state():
             drac_client.set_power_state('POWER_ON')
+    # Check container files exist 
+    # Check service install complete on bootstrap
+    # Install ./openshift-install --dir=openshift wait-for bootstrap-complete --log-level debug
+    # Check coontroller nodes are available in the cluster.
+    time.sleep(180)
+    # Check the controllers are up 
+    for node in settings['control_nodes']:
+        bNodeReady = False
+        while bNodeReady is False:
+            cmd = 'ssh -t root@localhost "sudo su - core -c \' ssh -o \\"StrictHostKeyChecking no \\" ' + node['name'] + ' ls -lart /etc/kubernetes/manifests\'"'
+            print(cmd)
+            ls  = Ssh.execute_command_tty("localhost",
+                                            "root",
+                                            "Dell0SS!",
+                                            cmd)
+            print(str(ls))
+            if "kube-scheduler-pod.yaml" and "kube-controller-manager-pod.yaml" and "kube-apiserver-pod.yaml" and "etcd-pod.yaml" in str(ls):
+                bNodeReady = True
+                print(node['name']  + " is ready")
+            else:
+                print("Waiting for" + node['name'] + " to be readdy...")
+                time.sleep(30)
+    # wait for the bootstrap to be ready 
+    cmd = 'ssh -t root@localhost "sudo su - core -c \' ssh -o \\"StrictHostKeyChecking no \\" bootstrap journalctl | grep \'bootkube.service complete\'\'"'
+    bBootStrapReady = False
+    while bBootStrapReady is False:
+        journal =  Ssh.execute_command_tty("localhost",
+                                           "root",
+                                           "Dell0SS!",
+                                           cmd)
+        if 'bootkube.service complete' in str(journal):
+            bBootStrapReady = True
+            print("Bootstrap node ready")
+        else:
+            print("Waiting for bootstrap node to finish initializing services..")
+            time.sleep(30)
+
+    print(" - Complete the bootstrap process")
+    cmd = 'ssh -t root@localhost "sudo su - core -c \' ./openshift-install --dir=openshift wait-for bootstrap-complete --log-level debug\'"'
+    print(cmd)
+    re =  Ssh.execute_command_tty("localhost",
+                                  "root",
+                                  "Dell0SS!",
+                                  cmd)
+    print(str(re))
+    cmd = 'ssh -t root@localhost "sudo su - core -c \'oc get nodes\'"'
+    re =  Ssh.execute_command_tty("localhost",
+                                  "root",
+                                  "Dell0SS!",
+                                  cmd)
+    print(str(re))
+
+    print("Set the Compute nodes to PXE & power them up ")
+    for node in settings['compute_nodes']:
+        set_node_to_pxe(node["ip_idrac"] ,'root','Dell0SS!')
+        print("powering on " + str(node["ip_idrac"]))
+        drac_client = DRACClient(node["ip_idrac"], drac_user, drac_password)
+        if "POWER_OFF" in drac_client.get_power_state():
+            drac_client.set_power_state('POWER_ON')
+
 
 
 
