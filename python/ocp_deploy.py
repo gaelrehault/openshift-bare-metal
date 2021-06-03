@@ -22,6 +22,8 @@ import logging, sys
 import dracclient
 from discover_nodes.dracclient.client import DRACClient
 import subprocess, time
+import requests, json
+
 
 def load_settings():
     with open(r'/home/ansible/openshift-bare-metal/python/nodes.yaml') as file:
@@ -32,6 +34,23 @@ def load_inventory():
     with open(r'/home/ansible/openshift-bare-metal/ansible/generated_inventory') as file:
         inventory = yaml.load(file)
     return inventory
+
+def set_node_to_pxe(idrac_ip, idrac_user, idrac_password):
+    url = 'https://%s/redfish/v1/Systems/System.Embedded.1' % idrac_ip
+    payload = {"Boot":{"BootSourceOverrideTarget":"Pxe"}}
+    headers = {'content-type': 'application/json'}
+
+    response = requests.patch(url, data=json.dumps(payload), headers=headers, verify=False,auth=(idrac_user, idrac_password))
+    data = response.json()
+    statusCode = response.status_code
+    if statusCode == 200:
+        print("Node set to Pxe on next boot")
+    else:
+        print("\n- Failed to set node to Pxe boot, errror code is %s" % statusCode)
+        detail_message=str(response.__dict__)
+        print(detail_message)
+        
+
 
 def deploy():
 #    a_logger = logging.getLogger()
@@ -117,9 +136,14 @@ def deploy():
     print("- Bootstrap VM is ready")
 
     print("- PXE boot the controller nodes")
-    # Set next boot to PXE
-    # Power ON
-    # Wait for nodes to be ready ( aka files listed where they should
+    for node in settings['control_nodes']:
+        set_node_to_pxe(node["ip_idrac"] ,'root','Dell0SS!')
+        print("powering on " + str(node["ip_idrac"]))
+        drac_client = DRACClient(node["ip_idrac"], drac_user, drac_password)
+        if "POWER_OFF" in drac_client.get_power_state():
+            drac_client.set_power_state('POWER_ON')
+
+
 
 
 def main():
