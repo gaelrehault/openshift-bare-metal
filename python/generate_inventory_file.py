@@ -20,7 +20,8 @@ from helper import create_dir, check_path, get_ip, get_network_device_mac, \
 from nodes import get_nodes_info
 
 class InventoryFile:
-    def __init__(self, inventory_dict = {}, id_user='', id_pass='', version='', z_stream='', rhcos='', nodes_inventory=''):
+    def __init__(self, inventory_dict = {}, id_user='', id_pass='', version='', z_stream='latest', rhcos='latest', nodes_inventory='',
+                 diskname_master='', diskname_worker='', dns_forwarder='', cluster_name=''):
         self.inventory_dict = inventory_dict
         self.id_user = id_user
         self.id_pass = id_pass
@@ -38,6 +39,10 @@ class InventoryFile:
         self.nodes_inv = ''
         self.software_dir = ''
         self.input_choice = ''
+        self.diskname_master = diskname_master
+        self.diskname_worker = diskname_worker
+        self.cluster_name = cluster_name
+        self.dns_forwarder = dns_forwarder
         self.cluster_install = 0
         self.ocp_client_base_url = 'https://mirror.openshift.com/pub/openshift-v4/clients/ocp/{}'.format(self.z_stream_release)
         self.ocp_rhcos_base_url = 'https://mirror.openshift.com/pub/openshift-v4/dependencies/rhcos/{}/{}'.format(self.version, self.rhcos_release)
@@ -47,23 +52,8 @@ class InventoryFile:
                          'uefi_file': '{}/rhcos-metal.x86_64.raw.gz'.format(self.ocp_rhcos_base_url),
                          'rootfs': '{}/rhcos-live-rootfs.x86_64.img'.format(self.ocp_rhcos_base_url)}
         self.task_inputs = """
-1: download OpenShift software
-2: cluster install
-3: disk info
-4: dns
-5: http
-6: ignition config
-7: review inventory
-8: generate inventory file
-9: Exit
-"""                 
+"""
 
-    def clear_screen(self):
-        """ 
-        performs clean screen
-
-        """
-        os.system('clear')
 
     def set_keys(self):
         """ 
@@ -72,16 +62,10 @@ class InventoryFile:
         """
         self.inventory_dict['all'] = {'children': {}}
         self.inventory_dict['all']['vars'] = {}
-        backup_management_node = input('Is there a backup management node [yes/No]: ')
+        backup_management_node = 'No'
 
-        if backup_management_node == 'yes':
-            backup_fqdn = input('Enter backup management node FQDN: ')
-            self.inventory_dict['all']['children'] = {'primary': {'hosts': '{}'.format(socket.getfqdn())}, 
-                                                      'secondary': {'hosts': '{}'.format(backup_fqdn)}}
-            vip = input('Enter the IP address of VIP used for HAProxy: ')
-            self.inventory_dict['all']['vars']['vip'] = vip
-        else:
-            self.inventory_dict['all']['children'] = {'primary': {'hosts': '{}'.format(socket.getfqdn())}}
+
+        self.inventory_dict['all']['children'] = {'primary': {'hosts': '{}'.format(socket.getfqdn())}}
 
     def set_nodes_inventory(self):
         """ 
@@ -97,62 +81,29 @@ class InventoryFile:
             logging.error('incorrect nodes inventory specified: {}'.format(self.nodes_inventory))
             sys.exit()
 
-    def generate_inputs_menu(self):
-        """
-        generates a menu of tasks for user input for each task
- 
-        """
-        self.clear_screen()
-        self.input_choice = ''
-        valid_choices = range(1,10)
-        while self.input_choice not in valid_choices:
-             logging.info('{}'.format(self.task_inputs))
-             try:
-                 self.input_choice = int(input('task choice for necessary inputs: '))
-                 if self.input_choice not in valid_choices:
-                     logging.warn('Invalid choice. Valid choice is an integer from 1-9')
-             except ValueError:
-                 logging.error('Strings not a valid choice')
-
-        logging.debug('user choice is {}'.format(self.input_choice))
-        self.get_user_inputs_for_task()
             
     def get_user_inputs_for_task(self):
         """ 
         performs tasks based on user input
 
         """
-        if self.input_choice == 9:
-            sys.exit()
-        elif self.input_choice == 1:
-            self.get_software_download_dir()
-            self.get_software()
-        elif self.input_choice == 2:
-            self.get_cluster_nodes()
-        elif self.input_choice == 3:
-            self.get_disk_name()
-        elif self.input_choice == 4:
-            self.get_dns_details()
-        elif self.input_choice == 5:
-            self.get_http_details()
-        elif self.input_choice == 6:
-            self.get_ignition_details()
-        elif self.input_choice == 7:
-            self.display_inventory()
-        elif self.input_choice == 8:
-            self.yaml_inventory(inventory_file='generated_inventory')
-            sys.exit()
-        self.generate_inputs_menu()
+        self.get_software_download_dir()
+        self.get_software()
+        self.get_cluster_nodes()
+        self.get_disk_name()
+        self.get_dns_details()
+        self.get_http_details()
+        self.get_ignition_details()
+        self.display_inventory()
+        self.yaml_inventory(inventory_file='generated_inventory')
 
     def get_software_download_dir(self):
         """ 
         get software download directory to download OCP software bits
   
         """
-        self.clear_screen()
         default = '/home/ansible/files'
-        self.software_dir = input('provide complete path of directory to download OCP {} software bits\n'
-                                  'default [/home/ansible/files]: '.format(self.version))
+        self.software_dir = '/home/ansible/files'
         self.software_dir = set_values(self.software_dir, default)
         dest_path_exist = check_path(self.software_dir, isdir=True)
         if dest_path_exist:
@@ -210,7 +161,7 @@ class InventoryFile:
         valid_choices = [1, 2]
         while self.cluster_install not in valid_choices:
             try:
-                self.cluster_install = int(input('enter cluster install option: '))
+                self.cluster_install = 2
                 logging.info('option selected: {}'.format(self.cluster_install))
             except ValueError:
                 logging.error('valid choices are: {}'.format(valid_choices))
@@ -232,7 +183,6 @@ class InventoryFile:
         """
         bootstrap_mac = ''
         bootstrap_devices = None
-        self.clear_screen()
         bootstrap_name = self.nodes_inv['bootstrap_kvm'][0]['name']
         bootstrap_os_ip = self.nodes_inv['bootstrap_kvm'][0]['ip_os']
         bootstrap_mac = "52:54:00:{}:{}:{}".format(randint(10,99),randint(10,99),randint(10,99))
@@ -249,7 +199,6 @@ class InventoryFile:
         get details about master node
 
         """
-        self.clear_screen()
         self.inventory_dict['all']['vars']['control_nodes'] = []
         self.inventory_dict['all']['vars']['num_of_control_nodes'] = len(self.nodes_inv['control_nodes'])
         self.inventory_dict = get_nodes_info(node_type='control_nodes', inventory=self.inventory_dict, idrac_user=self.id_user, 
@@ -260,7 +209,6 @@ class InventoryFile:
         get details about worker node
 
         """
-        self.clear_screen()
         self.inventory_dict['all']['vars']['compute_nodes'] = []
         self.inventory_dict['all']['vars']['num_of_compute_nodes'] = len(self.nodes_inv['compute_nodes'])
         self.inventory_dict = get_nodes_info(node_type='compute_nodes', inventory=self.inventory_dict, idrac_user=self.id_user,
@@ -303,7 +251,6 @@ class InventoryFile:
         get dhcp lease times 
         
         """
-        self.clear_screen()
         self.inventory_dict['all']['vars']['default_lease_time'] = 8000
         self.inventory_dict['all']['vars']['max_lease_time'] = 72000
 
@@ -312,23 +259,17 @@ class InventoryFile:
         get zone config file and cluster name used by DNS
 
         """
-        self.clear_screen()
-        response = input('specify a DNS forwarder if necessary (yes/No): ')
-        accepted_response = ['yes', 'No']
-        while response not in accepted_response:
-            response = input('specify a DNS forwarder if necessary (yes/No): ')
 
-        if response == 'yes':
-            dns_forwarder = input('enter the DNS forwarder IP: ')
-            self.inventory_dict['all']['vars']['dns_forwarder'] = dns_forwarder
 
-        cluster_name = input('specify cluster name \n'
-                             'default [ocp]: ')
-        default = 'ocp'
+        dns_forwarder = self.dns_forwarder
+        self.inventory_dict['all']['vars']['dns_forwarder'] = dns_forwarder
+
+        cluster_name = self.cluster_name
+        default = self.cluster_name
         cluster_name = set_values(cluster_name, default)
-        zone_file = input('specify zone file \n'
-                          'default [/var/named/{}.zones]: '.format(cluster_name))
+
         default = '/var/named/{}.zones'.format(cluster_name)
+        zone_file = default
         zone_file = set_values(zone_file, default)
         logging.info('adding zone_file: {} cluster: {}'.format(zone_file, cluster_name))
         self.inventory_dict['all']['vars']['default_zone_file'] = zone_file
@@ -339,15 +280,11 @@ class InventoryFile:
         get http details and directories names created under /var/www/html
 
         """
-        self.clear_screen()
-        port = input('enter http port \n'
-                     'default [8080]: ')
+        port = 8080
         default = 8080
         port = set_values(port, default)
         port = validate_port(port)
-        ignition_dir = input('specify dir where ignition files will be placed \n'
-                             'directory will be created under /var/www/html \n'
-                             'default [ignition]: ')
+        ignition_dir = 'ignition'
         default = 'ignition'
         ignition_dir = set_values(ignition_dir, default)
         logging.info('adding http_port: {} http_ignition: {} version: {}'.format(port, ignition_dir, self.version))
@@ -361,22 +298,17 @@ class InventoryFile:
         disknames used for each node type. 
 
         """
-        self.clear_screen()
         default = 'nvme0n1'
         logging.info('ensure disknames are available. Otherwise OpenShift install fails')
-        master_install_device = input('specify the control plane device that will be installed\n'
-                                      'default [nvme0n1]: ')
+        master_install_device = self.diskname_master
         master_install_device = set_values(master_install_device, default)
         self.inventory_dict['all']['vars']['master_install_device'] = master_install_device
-        if self.cluster_install == 1:
-            pass
-        else:
-            worker_install_device = input('specify the compute node device that will be installed\n'
-                                          'default [nvme0n1]: ')
-            worker_install_device = set_values(worker_install_device, default)
-            logging.info('adding master_install_device: {} worker_install_device: {}'.format(master_install_device, 
-                          worker_install_device))
-            self.inventory_dict['all']['vars']['worker_install_device'] = worker_install_device
+
+        worker_install_device = self.diskname_worker
+        worker_install_device = set_values(worker_install_device, default)
+        logging.info('adding master_install_device: {} worker_install_device: {}'.format(master_install_device,
+                      worker_install_device))
+        self.inventory_dict['all']['vars']['worker_install_device'] = worker_install_device
 
     def set_haproxy(self):
         """ 
@@ -396,27 +328,20 @@ class InventoryFile:
         get details from users used for install-config.yaml file
 
         """
-        self.clear_screen()
         default = 'openshift'
-        install_dir = input('enter the directory where openshift installs\n'
-                            'directory will be created under /home/core\n'
-                            'default [openshift]: ')
+        install_dir = 'openshift'
         install_dir = set_values(install_dir, default)
         default = '10.128.0.0/14'
-        pod_network_cidr = input('enter the pod network cidr\n'
-                                 'default [10.128.0.0/14]: ')
+        pod_network_cidr = '10.128.0.0/14'
         pod_network_cidr = set_values(pod_network_cidr, default)
         logging.info('pod network cidr: {}'.format(pod_network_cidr))
         pod_network_cidr = validate_network_cidr(pod_network_cidr)
         default = 23
-        host_prefix = input('specify cidr notation for number of ips in each node: \n'
-                            'cidr number should be an integer and less than 32\n'
-                            'default [23]: ')
+        host_prefix = 23
         host_prefix = set_values(host_prefix, default)
         host_prefix = validate_cidr(host_prefix)
         default = '172.30.0.0/16'
-        service_network_cidr = input('specify the service network cidr\n'
-                                     'default [172.30.0.0/16]: ')
+        service_network_cidr = '172.30.0.0/16'
         service_network_cidr = set_values(service_network_cidr, default)
         service_network_cidr = validate_network_cidr(service_network_cidr)
         logging.info('adding install_dir: {} cluster_network_cidr: {}\
@@ -442,17 +367,15 @@ class InventoryFile:
         display current user input details
 
         """
-        self.clear_screen()
         logging.info(yaml.dump(self.inventory_dict, default_flow_style=False))
-        input('Press Enter to continue ')
+
 
     def run(self):
         self.set_keys()
         self.set_haproxy()
         self.dhcp_lease_times()
         self.set_nodes_inventory()
-        self.generate_inputs_menu()
-
+        self.get_user_inputs_for_task()
 
 def main():
     parser = argparse.ArgumentParser(description="Generate Inventory")
@@ -465,13 +388,22 @@ def main():
     parser.add_argument('--nodes', help='nodes inventory file', required=True)
     parser.add_argument('--id_user', help='specify idrac user', required=False)
     parser.add_argument('--id_pass', help='specify idrac user', required=False)
+    parser.add_argument('--diskname_master', type=str, help='specify boot disk for master nodes', required=True)
+    parser.add_argument('--diskname_worker', type=str, help='specify boot disk for worker nodes', required=True)
+    parser.add_argument('--dns_forwarder',type=str,  help='specify the dns forwarder', required=True)
+    parser.add_argument('--cluster_name', type=str, help='specify the cluster name', required=True)
     parser.add_argument('--debug', help='specify debug logs', action='store_true', required=False)
     if len(sys.argv) == 1:
         parser.print_help(sys.stderr)
         sys.exit()
     args = parser.parse_args()
     log_setup(log_file='inventory.log', debug=args.debug)
-    gen_inv_file = InventoryFile(id_user=args.id_user, id_pass=args.id_pass, version=args.release, z_stream=args.z_stream, rhcos=args.rhcos_ver, nodes_inventory=args.nodes)
+    gen_inv_file = InventoryFile(id_user=args.id_user, id_pass=args.id_pass, version=args.release,
+                                 z_stream=args.z_stream, rhcos=args.rhcos_ver, nodes_inventory=args.nodes,
+                                 diskname_master=args.diskname_master,
+                                 diskname_worker=args.diskname_worker,
+                                 dns_forwarder=args.dns_forwarder,
+                                 cluster_name=args.cluster_name)
     if args.run:
         gen_inv_file.run()
     
@@ -482,3 +414,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

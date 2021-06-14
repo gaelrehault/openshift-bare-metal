@@ -343,7 +343,7 @@ def get_mac_address(selected_network_device, base_api_url, user, passwd):
 
     return device_mac_address
 
-def get_network_device_mac(devices, user, passwd, base_api_url):
+def get_network_device_mac(device, user, passwd, base_api_url):
     """ 
     lists available network devices from iDRAC
     generates a menu of network devices
@@ -352,8 +352,8 @@ def get_network_device_mac(devices, user, passwd, base_api_url):
     """
     network_device_mac_address = ''
 
-    if devices:
-        selected_network_device = generate_network_devices_menu(devices, purpose='DHCP')
+    if device:
+        selected_network_device = device
         network_device_mac_address = get_mac_address(selected_network_device, base_api_url, user, passwd)
 
     if network_device_mac_address:

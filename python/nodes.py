@@ -53,12 +53,8 @@ def get_nodes_info(node_type='', inventory='', add=False, idrac_user='', idrac_p
     else:
         nodes_count = len(nodes_info['control_nodes']) if node_type == 'control_nodes' else len(nodes_info['compute_nodes'])
 
-    bonding = input('Do you want to perform bonding for \'{}\' (y/NO): '.format(node_type))
+    bonding = 'y'
     valid_responses = ['y', 'NO']
-
-    while bonding not in valid_responses:
-        logging.error('Invalid option provided. Enter \'y\' or \'NO\'')
-        bonding = input('Do you want to perform bonding (y/NO): ')
 
     all_compute_nodes = ['compute_nodes', 'new_compute_nodes']
 
@@ -98,63 +94,26 @@ def get_nodes_info(node_type='', inventory='', add=False, idrac_user='', idrac_p
         logging.info('select network interfaces for node {}'.format(name))
         if map_devices:
             if bonding == 'y':
-                mac = get_network_device_mac(map_devices, user, passwd, base_api_url)
+                pxe_nic_interface = nodes_info[node_type][num]['pxe_interface']
+                mac = get_network_device_mac(pxe_nic_interface, user, passwd, base_api_url) 
                 bond_name = 'bond0'
-                active_bond_device = generate_network_devices_menu(map_devices, purpose='{} active bond interface'.format(name))
+                active_bond_device = nodes_info[node_type][num]['bond_interface_primary']
                 logging.debug('selected {} active bond interface: {}'.format(name, active_bond_device))
                 active_bond_enumeration = get_device_enumeration(active_bond_device, os=os, server_model=server_model)
                 logging.debug('{} active bond enumeration: {}'.format(name, active_bond_enumeration))
-                backup_bond_device = generate_network_devices_menu(map_devices, purpose='{} backup bond interface'.format(name))
+                backup_bond_device = nodes_info[node_type][num]['bond_interface_backup']
                 logging.debug('selected {} backup bond interface: {}'.format(name, backup_bond_device))
                 backup_bond_enumeration = get_device_enumeration(backup_bond_device, os=os, server_model=server_model)
                 logging.debug('{} backup bond enumeration: {}'.format(name, backup_bond_enumeration))
                 logging.debug('interfaces: {}'.format(devices))
                 logging.debug('map interfaces: {}'.format(map_devices))
-                    
-                if node_type in all_compute_nodes and os == 'rhel':
-                    for device in map_devices:
-                        interface_enumeration = get_device_enumeration(device, os=os, server_model=server_model)
-                        interfaces_enumeration.append(interface_enumeration)
-                else:
-                    interfaces_enumeration.append(active_bond_enumeration)
-                
+
                 nodes = 'control_nodes' if node_type == 'control_nodes' else 'compute_nodes'
                 inventory = set_network_details(node_type=nodes, node_name=name, ip=os_ip, mac=mac, 
                                                 bond_name=bond_name, primary=active_bond_enumeration,
                                                 backup=backup_bond_enumeration, interfaces=interfaces_enumeration,
                                                 inventory=inventory, os=os)
-                
-            else:
-                nodes = 'control_nodes' if node_type == 'control_nodes' else 'compute_nodes'
-                nic_device = generate_network_devices_menu(map_devices, purpose='{} nic port'.format(name))
-                logging.debug('selected {} as nic port: {}'.format(name, nic_device))
-                nic_device_enumeration = get_device_enumeration(nic_device, os=os, server_model=server_model)
-                logging.debug('{} nic device enumeration: {}'.format(name, nic_device_enumeration))
-                nic_mac = get_mac_address(nic_device, base_api_url, user, passwd)
-                logging.debug('{} nic mac address: {}'.format(name, nic_mac))
-                node_keys = ['name','ip','mac','interface','os']
 
-                if node_type in all_compute_nodes and os == 'rhel':
-                    node_keys = ['name','ip','mac','interface','os','interfaces']
-                    for device in map_devices:
-                        interface_enumeration = get_device_enumeration(device, os='rhel', server_model=server_model)
-                        interfaces_enumeration.append(interface_enumeration)
-                    node_values = [name, os_ip, nic_mac, nic_device_enumeration, os, interfaces_enumeration]
-                else:
-                    interfaces_enumeration.append(nic_device_enumeration) 
-                    node_values = [name, os_ip, nic_mac, nic_device_enumeration, os]
-
-                logging.debug('{} node values: {}'.format(name, node_values))
-                node_pairs = dict(zip(node_keys, node_values))
-                inventory['all']['vars'][nodes].append(node_pairs)
-
-    if node_type in all_compute_nodes and add:
-        try:
-            compute_nodes_count = inventory['all']['vars']['num_of_compute_nodes']
-        except KeyError:
-            inventory['all']['vars']['num_of_compute_nodes'] = 0
-            compute_nodes_count = 0
-        new_compute_nodes_count = compute_nodes_count + nodes_count
-        inventory['all']['vars']['num_of_compute_nodes'] = new_compute_nodes_count
 
     return inventory
+
